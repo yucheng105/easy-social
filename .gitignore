@@ -180,3 +180,8 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+/generated/prisma
+
+node_modules
+notes.md
