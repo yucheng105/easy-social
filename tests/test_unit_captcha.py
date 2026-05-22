@@ -1,6 +1,8 @@
 # tests/test_unit_captcha.py
 import pytest
 
+pytestmark = pytest.mark.unit
+
 def test_get_captcha_generates_image_and_session(client):
     """測試驗證碼路由是否正確生成圖片並寫入 Session"""
     response = client.get("/auth/captcha")
