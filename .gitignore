@@ -185,3 +185,5 @@ cython_debug/
 
 node_modules
 notes.md
+.vercel
+.env*
