@@ -16,38 +16,12 @@ from flask import (
     make_response,
 )
 from flask_login import current_user, login_required, login_user, logout_user
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from captcha.image import ImageCaptcha
 
 from .extensions import db
 from .models import User
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
-
-
-def _render_captcha_image(captcha_text: str) -> io.BytesIO:
-    image = Image.new("RGB", (160, 60), color=(248, 249, 252))
-    draw = ImageDraw.Draw(image)
-
-    for _ in range(8):
-        x1 = random.randint(0, 159)
-        y1 = random.randint(0, 59)
-        x2 = random.randint(0, 159)
-        y2 = random.randint(0, 59)
-        draw.line((x1, y1, x2, y2), fill=(180, 186, 196), width=1)
-
-    font = ImageFont.load_default()
-    text_bbox = draw.textbbox((0, 0), captcha_text, font=font)
-    text_width = text_bbox[2] - text_bbox[0]
-    text_height = text_bbox[3] - text_bbox[1]
-    text_x = (160 - text_width) / 2
-    text_y = (60 - text_height) / 2
-    draw.text((text_x, text_y), captcha_text, fill=(45, 55, 72), font=font)
-
-    image = image.filter(ImageFilter.SMOOTH)
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    buffer.seek(0)
-    return buffer
 
 
 @bp.route("/captcha")
@@ -60,7 +34,8 @@ def get_captcha():
     session["captcha_text"] = captcha_text
     
     # 3. 繪製圖形驗證碼
-    data = _render_captcha_image(captcha_text)
+    image = ImageCaptcha(width=160, height=60)
+    data = image.generate(captcha_text)
     
     # 4. 回傳圖片 Response，並強制瀏覽器不進行快取
     response = make_response(data.getvalue())
