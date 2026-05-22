@@ -39,6 +39,7 @@ def register(client, username: str, email: str | None = None, password: str = "p
             "username": username,
             "email": email or f"{username}@example.com",
             "password": password,
+            "captcha": "MOCK"
         },
         follow_redirects=True,
     )

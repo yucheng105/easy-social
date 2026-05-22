@@ -6,19 +6,40 @@
     <form method="post" class="form-stack">
       <label>
         Username
-        <input name="username" maxlength="40" autocomplete="username" required>
+        <input name="username" value="{{ form_data.username }}" maxlength="40" autocomplete="username" required>
       </label>
       <label>
         Email
-        <input name="email" type="email" autocomplete="email" required>
+        <input name="email" type="email" value="{{ form_data.email }}" autocomplete="email" required>
       </label>
       <label>
         Password
         <input name="password" type="password" autocomplete="new-password" required>
       </label>
+      
+      <label>
+        Security CAPTCHA (Case-insensitive)
+        <div style="display: flex; align-items: center; gap: 12px; margin: 6px 0;">
+          <img id="captcha-img" src="{{ url_for('auth.get_captcha') }}" alt="CAPTCHA" 
+               style="border: 1px solid #ccc; border-radius: 4px; cursor: pointer; height: 42px;" 
+               title="Click to refresh">
+          <button type="button" onclick="refreshCaptcha()" 
+              style="padding: 4px 8px; font-size: 0.85rem; color: #2b2b2b; background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;">
+            Refresh
+          </button>
+        </div>
+        <input name="captcha" placeholder="Enter CAPTCHA code" autocomplete="off" required>
+      </label>
+      
       <button type="submit">Register</button>
     </form>
     <p class="muted">Already registered? <a href="{{ url_for('auth.login') }}">Log in</a>.</p>
   </section>
-{% endblock %}
 
+  <script>
+    // 點擊圖片或按鈕時，重新向後端路由請求新驗證碼，加上時間戳記防止瀏覽器快取 (Cache)
+    function refreshCaptcha() {
+        document.getElementById('captcha-img').src = "{{ url_for('auth.get_captcha') }}?t=" + new Date().getTime();
+    }
+  </script>
+{% endblock %}
