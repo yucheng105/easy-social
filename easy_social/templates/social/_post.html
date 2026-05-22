@@ -3,6 +3,7 @@
   {% if post.is_repost %}
     <div class="repost-label">Reposted by <a href="{{ url_for('social.profile', username=post.author.username) }}">@{{ post.author.username }}</a></div>
   {% endif %}
+  {% set voted_option_id = content.get_user_voted_option_id(current_user.id) if content.post_type == "poll" else None %}
   <header class="post-header">
     <div>
       <a class="username" href="{{ url_for('social.profile', username=content.author.username) }}">@{{ content.author.username }}</a>
@@ -11,6 +12,26 @@
   </header>
   {% if content.body %}
     <p class="post-body">{{ content.body }}</p>
+  {% endif %}
+  {% if content.post_type == "poll" %}
+    <section class="poll-card" data-poll-card data-has-voted="{{ 'true' if voted_option_id else 'false' }}">
+      <div class="poll-options">
+        {% for option in content.poll_options %}
+          <form class="poll-option-form" data-poll-option-form method="post" action="{{ url_for('social.vote_poll', post_id=content.id) }}" data-option-id="{{ option.id }}">
+            <input type="hidden" name="option_id" value="{{ option.id }}">
+            <button type="submit" class="poll-option{% if voted_option_id == option.id %} is-selected{% endif %}" {% if voted_option_id %}disabled{% endif %}>
+              <span class="poll-option-text">{{ option.option_text }}</span>
+              <span class="poll-option-results" data-poll-option-results {% if not voted_option_id %}hidden{% endif %}>
+                <span><strong data-poll-option-votes>{{ option.vote_count }}</strong> votes</span>
+                <span><strong data-poll-option-percentage>{{ option.vote_percentage }}</strong>%</span>
+              </span>
+            </button>
+          </form>
+        {% endfor %}
+      </div>
+      <p class="muted poll-state" data-poll-state>{% if voted_option_id %}{{ content.total_votes }} total votes{% else %}Vote to reveal results{% endif %}</p>
+      <span class="muted" data-poll-total-votes hidden>{{ content.total_votes }}</span>
+    </section>
   {% endif %}
   {% if content.media_filename %}
     {% if content.media_type == "image" %}
