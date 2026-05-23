@@ -128,6 +128,15 @@ class Post(db.Model):
         vote = self.poll_votes.filter_by(user_id=user_id).first()
         return vote.option_id if vote else None
 
+    def should_show_results(self, user_id: int | None) -> bool:
+        if self.post_type != "poll":
+            return False
+        if not user_id:
+            return True
+        if self.author_id == user_id:
+            return True
+        return self.poll_votes.filter_by(user_id=user_id).count() > 0
+
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)

@@ -110,6 +110,17 @@
       pollToggle.addEventListener("click", function () {
         setPollEnabled(pollPanel.hidden);
       });
+      composer.addEventListener("submit", function () {
+        if (postTypeInput.value !== "poll") {
+          return;
+        }
+
+        pollInputs.forEach(function (pollInput, index) {
+          if (index >= 2 && !pollInput.value.trim()) {
+            pollInput.disabled = true;
+          }
+        });
+      });
       setPollEnabled(false);
     }
   }

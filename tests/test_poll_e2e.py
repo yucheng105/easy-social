@@ -1,53 +1,171 @@
-###########################################################################
-# End to End test 
-# simulating a real user 
-#   - creating a poll post, 
-#   - voting, and 
-#   - seeing the progress bar update in real-time without page refresh.
-###########################################################################
+from __future__ import annotations
+
+import os
+import tempfile
+import threading
+from pathlib import Path
+
 import pytest
+from werkzeug.serving import make_server
 
-pytestmark = pytest.mark.ui
+from easy_social import create_app
+from easy_social.extensions import db
+from easy_social.models import Comment, PollOption, PollVote, Post, User
 
-playwright_sync_api = pytest.importorskip(
-    "playwright.sync_api", reason="Playwright is required for E2E browser tests"
-)
-Page = playwright_sync_api.Page
-expect = playwright_sync_api.expect
+selenium = pytest.importorskip("selenium")
 
-def test_user_poll_interaction_lifecycle(page: Page, live_server):
-    """模擬真實使用者建立投票貼文、點擊投票、即時看到進度條的完整生命週期"""
-    
-    # 1. 登入系統
-    page.goto(f"{live_server.url}/login")
-    page.fill("input[name='username']", "testuser")
-    page.fill("input[name='password']", "password123")
-    page.click("button[type='submit']")
-    
-    # 2. 來到主首頁，點擊切換為「投票貼文」模式並填寫內容
-    page.goto(f"{live_server.url}/")
-    page.click("#toggle-poll-mode-btn") # 假設你的前端切換按鈕識別字為此
-    page.fill("textarea[name='body']", "大三下最硬的課？")
-    
-    # 動態填寫投票選項 (2個)
-    page.fill("input[name='options'][index='0']", "系統開發與設計")
-    page.fill("input[name='options'][index='1']", "高等資料庫")
-    page.click("#submit-post-btn")
-    
-    # 3. 驗證貼文成功出現在 Feed 流中
-    expect(page.locator(".post-body")).to_contain_text("大三下最硬的課？")
-    
-    # 驗收條件：未投票前，投票結果百分比應處於「隱藏」狀態
-    expect(page.locator(".poll-results")).to_be_hidden()
-    expect(page.locator(".vote-btn").first).to_be_visible()
-    
-    # 4. 關鍵互動：模擬使用者點選第一個選項進行投票
-    page.click(".vote-btn:has-text('系統開發與設計')")
-    
-    # 驗收條件（近即時更新）：網頁不可重新整理，按鈕應自動轉化為百分比進度條
-    expect(page.locator(".poll-results")).to_be_visible()
-    expect(page.locator(".vote-btn")).to_be_hidden() # 按鈕應隱藏或停用
-    
-    # 驗收計算公式：此時該選項應顯示為 100% (1 票 / 總共 1 票)
-    expect(page.locator(".option-percentage").first).to_contain_text("100%")
-    expect(page.locator(".total-votes-count")).to_contain_text("Total Votes: 1")
+from selenium import webdriver
+from selenium.common.exceptions import WebDriverException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
+
+@pytest.fixture(scope="module")
+def ui_app():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test",
+                "SQLALCHEMY_DATABASE_URI": f"sqlite:///{temp_path / 'poll_ui.sqlite'}",
+                "UPLOAD_FOLDER": str(temp_path / "uploads"),
+                "MEDIA_STORAGE_BACKEND": "local",
+                "WTF_CSRF_ENABLED": False,
+            }
+        )
+        with app.app_context():
+            db.create_all()
+        yield app
+
+
+@pytest.fixture(scope="module")
+def live_server(ui_app):
+    try:
+        server = make_server("127.0.0.1", 0, ui_app, threaded=True)
+    except SystemExit:
+        pytest.skip("Selenium live server could not bind to a local port")
+
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    yield f"http://127.0.0.1:{server.server_port}"
+
+    server.shutdown()
+    thread.join(timeout=5)
+
+
+@pytest.fixture()
+def browser():
+    browser_name = os.environ.get("SELENIUM_BROWSER", "chrome").lower()
+    headless = os.environ.get("SELENIUM_HEADLESS", "1") != "0"
+
+    try:
+        if browser_name == "firefox":
+            options = webdriver.FirefoxOptions()
+            if headless:
+                options.add_argument("-headless")
+            driver = webdriver.Firefox(options=options)
+        else:
+            options = webdriver.ChromeOptions()
+            if headless:
+                options.add_argument("--headless=new")
+            options.add_argument("--window-size=1280,900")
+            driver = webdriver.Chrome(options=options)
+    except WebDriverException as exc:
+        pytest.skip(f"Selenium browser could not start: {exc.msg}")
+
+    yield driver
+
+    driver.quit()
+
+
+@pytest.fixture(autouse=True)
+def clean_database(ui_app):
+    with ui_app.app_context():
+        db.session.query(PollVote).delete()
+        db.session.query(PollOption).delete()
+        db.session.query(Comment).delete()
+        db.session.query(Post).delete()
+        db.session.query(User).delete()
+        db.session.commit()
+
+
+@pytest.fixture()
+def poll_user(ui_app):
+    with ui_app.app_context():
+        user = User(username="testuser", email="testuser@example.com")
+        user.set_password("password123")
+        db.session.add(user)
+        db.session.commit()
+
+
+def wait_for_text(browser, text: str):
+    WebDriverWait(browser, 5).until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), text))
+
+
+def wait_for_feed(browser):
+    WebDriverWait(browser, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "form.composer")))
+    wait_for_text(browser, "Feed")
+
+
+def set_field_value(browser, field, value: str):
+    browser.execute_script(
+        """
+        arguments[0].value = arguments[1];
+        arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+        arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        field,
+        value,
+    )
+
+
+def submit_form(browser, form):
+    browser.execute_script("arguments[0].requestSubmit ? arguments[0].requestSubmit() : arguments[0].submit();", form)
+
+
+@pytest.mark.ui
+def test_user_poll_interaction_lifecycle(browser, live_server, poll_user):
+    browser.get(f"{live_server}/auth/login")
+    login_form = WebDriverWait(browser, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "form.form-stack"))
+    )
+    set_field_value(browser, login_form.find_element(By.NAME, "username_or_email"), "testuser")
+    set_field_value(browser, login_form.find_element(By.NAME, "password"), "password123")
+    submit_form(browser, login_form)
+    wait_for_feed(browser)
+
+    composer = browser.find_element(By.CSS_SELECTOR, "form.composer")
+    composer.find_element(By.CSS_SELECTOR, "[data-poll-toggle]").click()
+    WebDriverWait(browser, 5).until(lambda _: composer.find_element(By.CSS_SELECTOR, "[data-poll-panel]").is_displayed())
+
+    set_field_value(browser, composer.find_element(By.NAME, "body"), "Which feature should ship next?")
+    poll_inputs = composer.find_elements(By.CSS_SELECTOR, "input[name='options']")
+    assert len(poll_inputs) == 4
+    set_field_value(browser, poll_inputs[0], "Better notifications")
+    set_field_value(browser, poll_inputs[1], "Profile themes")
+    submit_form(browser, composer)
+
+    wait_for_text(browser, "Which feature should ship next?")
+    poll_card = WebDriverWait(browser, 5).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-poll-card]"))
+    )
+    assert poll_card.find_element(By.CSS_SELECTOR, "[data-poll-state]").text == "0 total votes"
+    assert poll_card.find_element(By.CSS_SELECTOR, "[data-poll-option-results]").is_displayed()
+    assert poll_card.find_element(By.CSS_SELECTOR, "[data-poll-option-percentage]").text == "0.0"
+
+    vote_buttons = poll_card.find_elements(By.CSS_SELECTOR, "button.poll-option")
+    assert len(vote_buttons) == 2
+    vote_buttons[0].click()
+
+    WebDriverWait(browser, 5).until(
+        lambda _: poll_card.find_element(By.CSS_SELECTOR, "[data-poll-state]").text == "1 total votes"
+    )
+    WebDriverWait(browser, 5).until(
+        lambda _: poll_card.find_element(By.CSS_SELECTOR, "[data-poll-option-results]").is_displayed()
+    )
+
+    assert all(button.get_attribute("disabled") for button in vote_buttons)
+    assert poll_card.find_element(By.CSS_SELECTOR, "[data-poll-option-percentage]").text == "100"

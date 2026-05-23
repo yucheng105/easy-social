@@ -2,10 +2,14 @@
 # covering end-to-end scenarios from post creation to voting and JSON response validation.
 ############################################################################################
 import pytest
+from sqlalchemy.exc import IntegrityError
+
 from easy_social.models import Post, PollOption
 
-def test_create_poll_post_validation(client, auth_client):
-    """測試建立投票貼文的欄位約束（2~4個選項、不允許空字串）"""
+pytestmark = pytest.mark.integration
+
+def test_create_poll_post_validation(client, auth_client, db_session):
+    """測試建立投票貼文的欄位約束（2~4個非空選項）"""
     # 狀況 A：選項少於 2 個 -> 應該拒絕並引導
     response = auth_client.post("/posts", data={
         "body": "美味測試",
@@ -14,13 +18,15 @@ def test_create_poll_post_validation(client, auth_client):
     }, follow_redirects=True)
     assert b"A poll must contain between 2 and 4 options." in response.data
 
-    # 狀況 B：包含空字串選項 -> 應該拒絕
+    # 狀況 B：空白的 optional 選項應視為未提供
     response = auth_client.post("/posts", data={
         "body": "美味測試",
         "post_type": "poll",
         "options": ["選項 A", "  ", "選項 B"]
     }, follow_redirects=True)
-    assert b"Poll options cannot be empty strings." in response.data
+    assert response.status_code == 200
+    poll = db_session.query(Post).filter_by(body="美味測試", post_type="poll").one()
+    assert [option.option_text for option in poll.poll_options] == ["選項 A", "選項 B"]
 
 
 def test_poll_voting_flow_and_json_response(auth_client, db_session, sample_user):
@@ -52,6 +58,36 @@ def test_poll_voting_flow_and_json_response(auth_client, db_session, sample_user
     })
     assert dup_response.status_code == 400
     assert b"You have already voted on this poll." in dup_response.data
+
+
+def test_poll_vote_integrity_error_returns_json_error(auth_client, db_session, sample_user, monkeypatch):
+    """驗證併發重複投票撞到資料庫唯一限制時，不會回傳 500"""
+    poll = Post(body="併發投票測試", post_type="poll", author=sample_user)
+    db_session.add(poll)
+    db_session.commit()
+    option = PollOption(option_text="測試", post=poll)
+    db_session.add(option)
+    db_session.commit()
+
+    rolled_back = False
+    original_rollback = db_session.rollback
+
+    def raise_integrity_error():
+        raise IntegrityError("INSERT INTO poll_vote", {}, Exception("duplicate vote"))
+
+    def mark_rollback():
+        nonlocal rolled_back
+        rolled_back = True
+        original_rollback()
+
+    monkeypatch.setattr(db_session, "commit", raise_integrity_error)
+    monkeypatch.setattr(db_session, "rollback", mark_rollback)
+
+    response = auth_client.post(f"/posts/{poll.id}/vote", data={"option_id": option.id})
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "You have already voted on this poll."}
+    assert rolled_back is True
 
 
 def test_guest_user_cannot_vote(client, db_session, sample_user):

@@ -3,9 +3,11 @@
 # focusing on percentage calculation and database-level duplicate vote protection.
 ####################################################################################
 import pytest
-from easy_social.models import Post, PollOption, PollVote
+from easy_social.models import Post, PollOption, PollVote, User
 from easy_social.extensions import db
 from sqlalchemy.exc import IntegrityError
+
+pytestmark = pytest.mark.unit
 
 def test_poll_option_percentage_calculation(app, db_session, sample_user):
     """測試投票百分比計算與防範除以 0 錯誤"""
@@ -59,3 +61,32 @@ def test_database_level_duplicate_vote_protection(app, db_session, sample_user):
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_poll_author_can_see_results_without_voting(app, db_session, sample_user):
+    poll_post = Post(body="作者能不能直接看結果？", post_type="poll", author=sample_user)
+    db_session.add(poll_post)
+    db_session.commit()
+
+    assert poll_post.should_show_results(sample_user.id) is True
+    assert poll_post.get_user_voted_option_id(sample_user.id) is None
+
+
+def test_poll_results_visible_only_to_guests_authors_and_voters(app, db_session, sample_user):
+    voter = User(username="voter", email="voter@example.com")
+    voter.set_password("password")
+    poll_post = Post(body="誰可以看結果？", post_type="poll", author=sample_user)
+    db_session.add_all([voter, poll_post])
+    db_session.commit()
+
+    option = PollOption(option_text="可以", post=poll_post)
+    db_session.add(option)
+    db_session.commit()
+
+    assert poll_post.should_show_results(None) is True
+    assert poll_post.should_show_results(voter.id) is False
+
+    db_session.add(PollVote(user_id=voter.id, post_id=poll_post.id, option_id=option.id))
+    db_session.commit()
+
+    assert poll_post.should_show_results(voter.id) is True

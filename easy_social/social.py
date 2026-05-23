@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, flash, redirect, render_template, request, url_for, jsonify
 from flask_login import current_user, login_required
 from sqlalchemy import desc, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from .extensions import db
@@ -110,11 +111,6 @@ def create_post():
     if post_type == "poll" or len(options_raw) > 0:
         post_type = "poll"  # 強制修正型態
         
-        # 欄位限制：檢查是否有空欄位 (若原始長度跟過濾後長度不符，代表有使用者填了空字串)
-        if len(options) != len(options_raw):
-            flash("Poll options cannot be empty strings.", "error")
-            return redirect(request.referrer or url_for("social.feed"))
-            
         # 欄位限制：限制上限 4 個，下限 2 個
         if len(options) < 2 or len(options) > 4:
             flash("A poll must contain between 2 and 4 options.", "error")
@@ -264,7 +260,11 @@ def vote_poll(post_id: int):
         option_id=selected_option.id
     )
     db.session.add(vote)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "You have already voted on this poll."}), 400
 
     # 6. 近即時更新回傳 (Near Real-time Response)：
     # 回傳 JSON 統計數據，供前端 JavaScript (fetch) 收到後可以直接在不刷網頁的情況下重新繪製進度條
