@@ -7,6 +7,7 @@ import pytest
 
 from easy_social import create_app
 from easy_social.extensions import db
+from easy_social.models import User
 
 
 @pytest.fixture()
@@ -30,6 +31,28 @@ def app():
 @pytest.fixture()
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture()
+def db_session(app):
+    with app.app_context():
+        yield db.session
+        db.session.rollback()
+
+
+@pytest.fixture()
+def sample_user(db_session):
+    user = User(username="testuser", email="testuser@example.com")
+    user.set_password("password123")
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
+@pytest.fixture()
+def auth_client(client, sample_user):
+    login(client, sample_user.username, "password123")
+    return client
 
 
 def register(client, username: str, email: str | None = None, password: str = "password"):

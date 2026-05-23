@@ -24,6 +24,9 @@ pytest = "^8.2.0"
 selenium = "^4.43.0"
 
 [tool.pytest.ini_options]
+pythonpath = [
+  "."
+]
 addopts = "-m 'not ui'"
 markers = [
     "unit: focused unit tests for isolated functions and model behavior",

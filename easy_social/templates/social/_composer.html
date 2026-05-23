@@ -1,5 +1,31 @@
 <form method="post" action="{{ url_for('social.create_post') }}" enctype="multipart/form-data" class="composer">
   <textarea name="body" rows="4" maxlength="2000" placeholder="What is happening?"></textarea>
+  <input type="hidden" name="post_type" value="text" data-post-type-input>
+  <div class="composer-poll-toggle">
+    <button type="button" class="secondary" data-poll-toggle aria-pressed="false">Add poll</button>
+    <span class="muted">Choose 2 to 4 options.</span>
+  </div>
+  <div class="composer-poll" data-poll-panel hidden>
+    <div class="composer-poll-fields">
+      <label>
+        Option 1
+        <input type="text" name="options" maxlength="100" placeholder="First choice" data-poll-option-input disabled>
+      </label>
+      <label>
+        Option 2
+        <input type="text" name="options" maxlength="100" placeholder="Second choice" data-poll-option-input disabled>
+      </label>
+      <label>
+        Option 3
+        <input type="text" name="options" maxlength="100" placeholder="Optional choice" data-poll-option-input disabled>
+      </label>
+      <label>
+        Option 4
+        <input type="text" name="options" maxlength="100" placeholder="Optional choice" data-poll-option-input disabled>
+      </label>
+    </div>
+    <p class="muted">Fill in at least two options.</p>
+  </div>
   <div class="composer-preview" data-media-preview hidden>
     <div class="composer-preview-frame" data-media-preview-frame></div>
     <div class="composer-preview-meta">
